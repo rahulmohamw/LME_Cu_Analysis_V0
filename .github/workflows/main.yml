@@ -1,0 +1,618 @@
+name: Initial Repository Setup
+
+on:
+  # Run when repository is created or when this workflow is added
+  create:
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      reset_structure:
+        description: 'Reset directory structure'
+        required: false
+        default: false
+        type: boolean
+      
+      install_sample_data:
+        description: 'Install sample data for testing'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # Step 1: Checkout repository
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    # Step 2: Set up Python
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    # Step 3: Create complete directory structure
+    - name: Create directory structure
+      run: |
+        echo "🏗️ Setting up repository structure..."
+        
+        # Create all necessary directories
+        directories=(
+          "data"
+          "output"
+          "output/backups"
+          "output/reports"
+          "output/charts"
+          "logs"
+          ".github/sample_data"
+          ".github/scripts"
+          "docs"
+          "tests"
+        )
+        
+        for dir in "${directories[@]}"; do
+          mkdir -p "$dir"
+          echo "✅ Created: $dir"
+        done
+        
+        # Create .gitkeep files to preserve directory structure
+        echo "📝 Creating .gitkeep files..."
+        
+        echo "# Place your lme_copper_historical_data.csv here" > data/.gitkeep
+        echo "# Analysis output files" > output/.gitkeep
+        echo "# Timestamped backup files" > output/backups/.gitkeep
+        echo "# Analysis reports" > output/reports/.gitkeep
+        echo "# Generated charts" > output/charts/.gitkeep
+        echo "# Log files" > logs/.gitkeep
+        echo "# Sample data for testing" > .github/sample_data/.gitkeep
+        echo "# Utility scripts" > .github/scripts/.gitkeep
+        echo "# Documentation" > docs/.gitkeep
+        echo "# Test files" > tests/.gitkeep
+        
+        echo "✅ Directory structure created successfully!"
+        tree -a -I '.git'
+    
+    # Step 4: Generate sample data (optional)
+    - name: Generate sample data
+      if: github.event.inputs.install_sample_data == 'true' || github.event_name == 'create'
+      run: |
+        echo "📊 Generating sample data for testing..."
+        
+        python -c "
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+        
+# Generate sample data
+np.random.seed(42)
+        
+# Create date range (3 years of data)
+end_date = datetime.now()
+start_date = end_date - timedelta(days=365*3)
+dates = pd.date_range(start=start_date, end=end_date, freq='B')  # Business days only
+        
+# Generate realistic copper prices
+base_price = 9000
+trend = np.linspace(0, 500, len(dates))  # Slight upward trend
+seasonal = 300 * np.sin(2 * np.pi * np.arange(len(dates)) / 252)  # Yearly seasonality
+noise = np.random.normal(0, 200, len(dates))
+prices = base_price + trend + seasonal + noise
+        
+# Ensure positive prices
+prices = np.maximum(prices, 5000)
+        
+# Create DataFrame
+df = pd.DataFrame({
+    'date': dates,
+    'lme_copper_cash_settlement': prices,
+    'lme_copper_3_month': prices + np.random.normal(50, 20, len(dates)),
+    'lme_copper_stock': np.random.randint(100000, 200000, len(dates))
+})
+        
+# Format date as MM/DD/YYYY
+df['date'] = df['date'].dt.strftime('%-m/%-d/%Y')
+        
+# Save to sample data directory
+df.to_csv('.github/sample_data/lme_copper_historical_data.csv', index=False)
+print(f'✅ Generated sample data with {len(df)} rows')
+print(f'Date range: {df[\"date\"].iloc[-1]} to {df[\"date\"].iloc[0]}')
+print(f'Price range: \${prices.min():.2f} to \${prices.max():.2f}')
+        
+# Also save a smaller test dataset
+df_test = df.head(100)
+df_test.to_csv('.github/sample_data/test_data_small.csv', index=False)
+print('✅ Generated small test dataset (100 rows)')
+        "
+        
+        # Copy sample data to data directory if no data exists
+        if [ ! -f "data/lme_copper_historical_data.csv" ]; then
+          cp .github/sample_data/lme_copper_historical_data.csv data/
+          echo "📁 Sample data copied to data/ directory"
+        fi
+    
+    # Step 5: Create utility scripts
+    - name: Create utility scripts
+      run: |
+        echo "📝 Creating utility scripts..."
+        
+        # Create data validation script
+        cat > .github/scripts/validate_data.py << 'EOF'
+#!/usr/bin/env python3
+"""Validate LME copper data CSV file"""
+
+import pandas as pd
+import sys
+
+def validate_csv(filepath):
+    """Validate the CSV file structure and data"""
+    try:
+        df = pd.read_csv(filepath)
+        
+        # Check required columns
+        required_cols = ['date', 'lme_copper_cash_settlement']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        
+        if missing_cols:
+            print(f"❌ Missing required columns: {missing_cols}")
+            return False
+        
+        # Check data types
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        if df['date'].isna().any():
+            print(f"❌ Invalid date values found")
+            return False
+        
+        # Check for negative prices
+        if (df['lme_copper_cash_settlement'] < 0).any():
+            print(f"❌ Negative prices found")
+            return False
+        
+        print(f"✅ Data validation passed!")
+        print(f"   Rows: {len(df)}")
+        print(f"   Date range: {df['date'].min()} to {df['date'].max()}")
+        print(f"   Price range: ${df['lme_copper_cash_settlement'].min():.2f} to ${df['lme_copper_cash_settlement'].max():.2f}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Validation error: {e}")
+        return False
+
+if __name__ == "__main__":
+    filepath = sys.argv[1] if len(sys.argv) > 1 else "data/lme_copper_historical_data.csv"
+    sys.exit(0 if validate_csv(filepath) else 1)
+EOF
+        
+        chmod +x .github/scripts/validate_data.py
+        echo "✅ Created data validation script"
+        
+        # Create quick analysis script
+        cat > .github/scripts/quick_analysis.py << 'EOF'
+#!/usr/bin/env python3
+"""Quick analysis of LME copper data"""
+
+import pandas as pd
+import json
+from datetime import datetime
+
+def quick_analysis(filepath):
+    """Perform quick analysis of the data"""
+    df = pd.read_csv(filepath)
+    df['date'] = pd.to_datetime(df['date'])
+    
+    stats = {
+        "data_info": {
+            "total_rows": len(df),
+            "date_range": f"{df['date'].min().date()} to {df['date'].max().date()}",
+            "columns": list(df.columns)
+        },
+        "price_stats": {
+            "mean": float(df['lme_copper_cash_settlement'].mean()),
+            "median": float(df['lme_copper_cash_settlement'].median()),
+            "std": float(df['lme_copper_cash_settlement'].std()),
+            "min": float(df['lme_copper_cash_settlement'].min()),
+            "max": float(df['lme_copper_cash_settlement'].max())
+        },
+        "recent_data": {
+            "last_price": float(df.iloc[0]['lme_copper_cash_settlement']),
+            "last_date": df.iloc[0]['date'].strftime('%Y-%m-%d'),
+            "last_week_avg": float(df.head(5)['lme_copper_cash_settlement'].mean())
+        }
+    }
+    
+    print(json.dumps(stats, indent=2))
+    return stats
+
+if __name__ == "__main__":
+    import sys
+    filepath = sys.argv[1] if len(sys.argv) > 1 else "data/lme_copper_historical_data.csv"
+    quick_analysis(filepath)
+EOF
+        
+        chmod +x .github/scripts/quick_analysis.py
+        echo "✅ Created quick analysis script"
+    
+    # Step 6: Create or update README with setup status
+    - name: Update README with setup status
+      run: |
+        python -c "
+import os
+from datetime import datetime
+        
+# Check if README exists
+readme_exists = os.path.exists('README.md')
+        
+if not readme_exists:
+    # Create a basic README
+    readme_content = '''# LME Copper Analysis Tool 🔧📊
+        
+A comprehensive Python-based analysis tool for London Metal Exchange (LME) Copper historical data.
+        
+## 🚀 Quick Start
+        
+This repository has been automatically set up with GitHub Actions!
+        
+1. **Add your data**: Place your `lme_copper_historical_data.csv` file in the `data/` directory
+2. **Run analysis**: Use the Actions tab to trigger the analysis workflow
+3. **View results**: Open `copper_dashboard.html` after the workflow completes
+        
+## 📁 Repository Structure
+        
+✅ All directories have been created automatically!
+        
+'''
+else:
+    with open('README.md', 'r') as f:
+        readme_content = f.read()
+        
+# Add setup status
+setup_status = f'''
+## ✅ Setup Status
+        
+**Last Setup:** {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}  
+**Status:** Repository structure initialized  
+**Sample Data:** {'Installed' if os.path.exists('.github/sample_data/lme_copper_historical_data.csv') else 'Not installed'}  
+        
+'''
+        
+# Update or append the setup status
+if '## ✅ Setup Status' not in readme_content:
+    # Add after the title
+    lines = readme_content.split('\\n')
+    for i, line in enumerate(lines):
+        if line.startswith('# '):
+            lines.insert(i + 1, '\\n' + setup_status)
+            break
+    readme_content = '\\n'.join(lines)
+        
+with open('README.md', 'w') as f:
+    f.write(readme_content)
+        
+print('✅ README updated with setup status')
+        "
+    
+    # Step 7: Create GitHub Actions secrets documentation
+    - name: Create secrets documentation
+      run: |
+        cat > docs/SECRETS_SETUP.md << 'EOF'
+# GitHub Secrets Setup Guide
+
+## Required Secrets for Full Functionality
+
+### 1. Email Notifications (Optional)
+
+If you want to receive email notifications when analysis completes:
+
+1. Go to Settings → Secrets and variables → Actions
+2. Add the following secrets:
+   - `EMAIL_ADDRESS`: Your Gmail address
+   - `EMAIL_PASSWORD`: Gmail app password (not regular password)
+   - `NOTIFICATION_EMAIL`: Where to send notifications
+
+**Note:** For Gmail, you need to:
+1. Enable 2-factor authentication
+2. Generate an app-specific password
+3. Use the app password as `EMAIL_PASSWORD`
+
+### 2. Advanced Features (Optional)
+
+For future enhancements, you might add:
+- `SLACK_WEBHOOK`: For Slack notifications
+- `TEAMS_WEBHOOK`: For Microsoft Teams notifications
+- `DATABASE_URL`: For storing results in a database
+
+## How to Add Secrets
+
+1. Navigate to your repository on GitHub
+2. Click on "Settings" tab
+3. Select "Secrets and variables" → "Actions"
+4. Click "New repository secret"
+5. Enter the secret name and value
+6. Click "Add secret"
+
+## Security Notes
+
+- Never commit secrets to the repository
+- Secrets are encrypted and only visible to workflows
+- Rotate secrets regularly for security
+EOF
+        
+        echo "✅ Created secrets documentation"
+    
+    # Step 8: Create test file
+    - name: Create test file
+      run: |
+        cat > tests/test_analysis.py << 'EOF'
+#!/usr/bin/env python3
+"""Basic tests for copper analysis"""
+
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import unittest
+from pathlib import Path
+from copper_analysis import CopperLMEAnalyzer
+
+class TestCopperAnalysis(unittest.TestCase):
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.analyzer = CopperLMEAnalyzer()
+        self.test_data_path = Path('.github/sample_data/test_data_small.csv')
+    
+    def test_data_loading(self):
+        """Test data loading functionality"""
+        if self.test_data_path.exists():
+            self.analyzer.csv_path = self.test_data_path
+            result = self.analyzer.load_data()
+            self.assertTrue(result)
+            self.assertIsNotNone(self.analyzer.df)
+    
+    def test_analysis_execution(self):
+        """Test that analysis runs without errors"""
+        if self.test_data_path.exists():
+            self.analyzer.csv_path = self.test_data_path
+            self.analyzer.load_data()
+            results = self.analyzer.analyze_period()
+            self.assertIsInstance(results, dict)
+            self.assertIn('overall_stats', results)
+    
+    def test_directory_structure(self):
+        """Test that required directories exist"""
+        required_dirs = ['data', 'output', 'output/backups', 'logs']
+        for dir_path in required_dirs:
+            self.assertTrue(Path(dir_path).exists(), f"Directory {dir_path} does not exist")
+
+if __name__ == '__main__':
+    unittest.main()
+EOF
+        
+        chmod +x tests/test_analysis.py
+        echo "✅ Created test file"
+    
+    # Step 9: Install dependencies
+    - name: Install Python dependencies
+      run: |
+        echo "📦 Installing Python dependencies..."
+        
+        # Create requirements.txt if it doesn't exist
+        if [ ! -f "requirements.txt" ]; then
+          cat > requirements.txt << 'EOF'
+# Core dependencies
+pandas>=1.5.0
+numpy>=1.23.0
+scipy>=1.9.0
+schedule>=1.1.0
+
+# Additional dependencies for enhanced features
+openpyxl>=3.0.0  # Excel support
+tabulate>=0.9.0  # Table formatting
+matplotlib>=3.6.0  # Plotting
+seaborn>=0.12.0  # Statistical plots
+EOF
+          echo "✅ Created requirements.txt"
+        fi
+        
+        pip install -r requirements.txt
+        echo "✅ Dependencies installed"
+    
+    # Step 10: Run validation
+    - name: Validate setup
+      run: |
+        echo "🔍 Validating setup..."
+        
+        # Check directory structure
+        for dir in data output output/backups output/reports logs; do
+          if [ -d "$dir" ]; then
+            echo "✅ Directory exists: $dir"
+          else
+            echo "❌ Missing directory: $dir"
+            exit 1
+          fi
+        done
+        
+        # Check for data file
+        if [ -f "data/lme_copper_historical_data.csv" ]; then
+          echo "✅ Data file found"
+          python .github/scripts/validate_data.py
+        else
+          echo "⚠️ No data file found (sample data available in .github/sample_data/)"
+        fi
+        
+        # Check Python environment
+        echo ""
+        echo "Python environment:"
+        python --version
+        echo ""
+        echo "Installed packages:"
+        pip list | grep -E "pandas|numpy|scipy|schedule"
+        
+        echo ""
+        echo "🎉 Setup validation complete!"
+    
+    # Step 11: Create workflow documentation
+    - name: Create workflow documentation
+      run: |
+        cat > docs/WORKFLOWS.md << 'EOF'
+# GitHub Actions Workflows Documentation
+
+## Available Workflows
+
+### 1. Initial Repository Setup (`setup.yml`)
+
+**Trigger:** 
+- Automatically when repository is created
+- Manually via Actions tab
+
+**What it does:**
+- Creates complete directory structure
+- Generates sample data for testing
+- Creates utility scripts
+- Validates setup
+
+**Manual Options:**
+- `reset_structure`: Recreate directory structure
+- `install_sample_data`: Install sample test data
+
+### 2. LME Copper Analysis (`copper_analysis.yml`)
+
+**Trigger:**
+- Manual with custom options
+- Daily at 7:30 PM UTC
+- Weekly on Mondays at 9 AM UTC
+- Monthly on 1st day at midnight UTC
+- On push to main branch
+- On pull requests
+
+**Manual Options:**
+- `analysis_type`: full, last_year, last_6_months, last_3_months, custom
+- `start_date`: For custom analysis
+- `end_date`: For custom analysis
+- `output_format`: json, json_and_csv, json_and_excel, all_formats
+- `create_backup`: Create timestamped backup
+- `send_notification`: Send email (requires secrets)
+
+**Outputs:**
+- Analysis results in multiple formats
+- Interactive dashboard update
+- Automated backups
+- Summary reports
+
+## How to Trigger Workflows Manually
+
+1. Go to the "Actions" tab in your repository
+2. Select the workflow you want to run
+3. Click "Run workflow"
+4. Fill in the options
+5. Click "Run workflow" button
+
+## Workflow Artifacts
+
+Each workflow run produces artifacts that can be downloaded:
+- `analysis-results-{run-number}`: Complete analysis outputs
+- `analysis-logs-{run-number}`: Execution logs
+
+## Scheduled Runs
+
+The analysis workflow runs automatically:
+- **Daily**: 7:30 PM UTC (adjust in workflow file for your timezone)
+- **Weekly**: Monday 9 AM UTC (weekly summary)
+- **Monthly**: 1st day midnight UTC (monthly report + release)
+
+To modify schedule, edit the `cron` expressions in `.github/workflows/copper_analysis.yml`
+
+## Notifications
+
+Set up email notifications by adding these secrets:
+1. `EMAIL_ADDRESS`: Your email
+2. `EMAIL_PASSWORD`: App password
+3. `NOTIFICATION_EMAIL`: Recipient email
+
+See `docs/SECRETS_SETUP.md` for detailed instructions.
+EOF
+        
+        echo "✅ Created workflow documentation"
+    
+    # Step 12: Commit all changes
+    - name: Commit changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Add all new files
+        git add -A
+        
+        # Commit if there are changes
+        git diff --staged --quiet || (
+          git commit -m "🚀 Initial repository setup complete
+          
+          - Created directory structure
+          - Added sample data for testing
+          - Created utility scripts
+          - Added documentation
+          - Validated setup
+          
+          [skip ci]"
+          git push
+        )
+    
+    # Step 13: Create success issue
+    - name: Create setup completion issue
+      if: github.event_name == 'create' || github.event.inputs.reset_structure == 'true'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '✅ Repository Setup Complete!',
+            body: `## 🎉 Your LME Copper Analysis repository is ready!
+            
+            ### ✅ Setup Checklist:
+            - [x] Directory structure created
+            - [x] Sample data generated
+            - [x] Utility scripts added
+            - [x] Documentation created
+            - [x] Workflows configured
+            
+            ### 🚀 Next Steps:
+            
+            1. **Add your data**: 
+               - Place your \`lme_copper_historical_data.csv\` file in the \`data/\` directory
+               - Or use the sample data already provided for testing
+            
+            2. **Run your first analysis**:
+               - Go to the [Actions tab](../../actions)
+               - Select "LME Copper Analysis" workflow
+               - Click "Run workflow"
+               - Choose your options and run!
+            
+            3. **View results**:
+               - After workflow completes, download artifacts
+               - Open \`copper_dashboard.html\` for interactive visualization
+            
+            4. **Set up notifications** (optional):
+               - Add email secrets for notifications
+               - See [Secrets Setup Guide](../../tree/main/docs/SECRETS_SETUP.md)
+            
+            ### 📚 Documentation:
+            - [Workflows Guide](../../tree/main/docs/WORKFLOWS.md)
+            - [README](../../blob/main/README.md)
+            
+            ### 🤖 Automation:
+            The analysis will run automatically:
+            - Daily at 7:30 PM UTC
+            - Weekly on Mondays
+            - Monthly on the 1st
+            
+            You can close this issue once you've reviewed the setup.
+            
+            Happy analyzing! 📊`,
+            labels: ['documentation', 'good first issue']
+          });
+          console.log(`Created setup completion issue #${issue.data.number}`);
