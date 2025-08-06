@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.log
+analysis_cron.log
+output/backups/*.json
+*.tmp
+*.bak
+
+# Keep the data directory but not the data files (for privacy)
+data/*.csv
+data/*.xlsx
+data/*.xls
+!data/.gitkeep
+
+# Keep output directory structure
+!output/.gitkeep
+!output/backups/.gitkeep
+
+# Jupyter Notebooks (if used for development)
+.ipynb_checkpoints/
+*.ipynb
+
+# Configuration files with sensitive data
+config.ini
+config.json
+.env
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+~*
+*.temp
